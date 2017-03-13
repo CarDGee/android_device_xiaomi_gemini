@@ -2,6 +2,7 @@
  * Copyright (C) 2008 The Android Open Source Project
  * Copyright (C) 2014 The Linux Foundation. All rights reserved.
  * Copyright (C) 2016 The CyanogenMod Project
+ * Copyright (C) 2017 The LineageOS Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -51,6 +52,9 @@ static const char BLUE_LED_FILE[]
 
 static const char LCD_FILE[]
         = "/sys/class/leds/lcd-backlight/brightness";
+
+static const char LCD_MAX_BRIGHTNESS_FILE[]
+        = "/sys/class/leds/lcd-backlight/max_brightness";
 
 static const char BACK_BUTTON_FILE[]
         = "/sys/class/leds/button-backlight/brightness";
@@ -120,6 +124,9 @@ static int BRIGHTNESS_RAMP[RAMP_SIZE]
         = { 0, 12, 25, 37, 50, 72, 85, 100 };
 #define RAMP_STEP_DURATION 50
 
+#define DEFAULT_MAX_BRIGHTNESS 255
+int max_brightness;
+
 /**
  * Device methods
  */
@@ -128,6 +135,38 @@ static void init_globals(void)
 {
     // Init the mutex
     pthread_mutex_init(&g_lock, NULL);
+}
+
+static int read_int(char const* path)
+{
+    int fd, len;
+    int num_bytes = 10;
+    char buf[11];
+    int retval;
+
+    fd = open(path, O_RDONLY);
+    if (fd < 0) {
+        ALOGE("%s: failed to open %s\n", __func__, path);
+        goto fail;
+    }
+
+    len = read(fd, buf, num_bytes - 1);
+    if (len < 0) {
+        ALOGE("%s: failed to read from %s\n", __func__, path);
+        goto fail;
+    }
+
+    buf[len] = '\0';
+    close(fd);
+
+    // no endptr, decimal base
+    retval = strtol(buf, NULL, 10);
+    return retval == 0 ? -1 : retval;
+
+fail:
+    if (fd >= 0)
+        close(fd);
+    return -1;
 }
 
 static int write_int(char const* path, int value)
@@ -192,6 +231,15 @@ static int set_light_backlight(struct light_device_t* dev,
     if(!dev) {
         return -1;
     }
+
+    // If max panel brightness is not the default (255),
+    // apply linear scaling across the accepted range.
+    if (max_brightness != DEFAULT_MAX_BRIGHTNESS) {
+        int old_brightness = brightness;
+        brightness = brightness * max_brightness / DEFAULT_MAX_BRIGHTNESS;
+        ALOGV("%s: scaling brightness %d => %d\n", __func__, old_brightness, brightness);
+    }
+
     pthread_mutex_lock(&g_lock);
     err = write_int(LCD_FILE, brightness);
     pthread_mutex_unlock(&g_lock);
@@ -277,7 +325,7 @@ static int set_speaker_light_locked(struct light_device_t* dev,
 
         // Red
         write_int(RED_START_IDX_FILE, 0);
-        duty = get_scaled_duty_pcts(red);    
+        duty = get_scaled_duty_pcts(red);
         write_str(RED_DUTY_PCTS_FILE, duty);
         write_int(RED_PAUSE_LO_FILE, offMS);
         // The led driver is configured to ramp up then ramp
@@ -429,6 +477,12 @@ static int open_lights(const struct hw_module_t* module, char const* name,
     else
         return -EINVAL;
 
+    max_brightness = read_int(LCD_MAX_BRIGHTNESS_FILE);
+    if (max_brightness < 0) {
+        ALOGE("%s: failed to read max panel brightness, fallback to 255!\n", __func__);
+        max_brightness = DEFAULT_MAX_BRIGHTNESS;
+    }
+
     pthread_once(&g_init, init_globals);
 
     struct light_device_t *dev = malloc(sizeof(struct light_device_t));
@@ -460,7 +514,7 @@ struct hw_module_t HAL_MODULE_INFO_SYM = {
     .version_major = 1,
     .version_minor = 0,
     .id = LIGHTS_HARDWARE_MODULE_ID,
-    .name = "Mi5 Lights Module",
+    .name = "MSM8996 Lights Module",
     .author = "The CyanogenMod Project",
     .methods = &lights_module_methods,
 };
