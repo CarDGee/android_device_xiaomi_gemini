@@ -123,7 +123,7 @@ PRODUCT_COPY_FILES += \
 
 # Browser
 PRODUCT_PACKAGES += \
-    Gello
+    chromium
 
 # Camera
 PRODUCT_PACKAGES += \
