@@ -127,7 +127,7 @@ PRODUCT_PACKAGES += \
 
 # Camera
 PRODUCT_PACKAGES += \
-    Snap
+    SnapdragonCamera
 
 # Device config scripts
 PRODUCT_PACKAGES += \
